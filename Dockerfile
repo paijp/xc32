@@ -1,4 +1,4 @@
-FROM ubuntu:14.04
+FROM debian:bookworm-slim
 
 ENV DEBIAN_FRONTEND noninteractive
 
