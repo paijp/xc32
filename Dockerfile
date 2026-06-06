@@ -6,7 +6,7 @@ RUN set -x &&\
 	dpkg --add-architecture i386 &&\
 	apt-get update -yq &&\
 	apt-get install -yq --no-install-recommends \
-		wget make \
+		wget ca-certificates make \
 		libc6:i386 libstdc++6:i386 libexpat1:i386 &&\
 	apt-get clean &&\
 	rm -rf /var/lib/apt/lists/*
