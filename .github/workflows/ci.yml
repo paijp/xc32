@@ -1,0 +1,15 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test-build:
+    uses: ./.github/workflows/build.yml
+    with:
+      device: 32MX270F256B
+      targets: test.hex
+      artifact-name: test-firmware

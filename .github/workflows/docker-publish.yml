@@ -1,0 +1,52 @@
+name: Publish XC32 image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - Dockerfile
+      - makefile
+      - test.c
+      - .github/workflows/docker-publish.yml
+  workflow_dispatch:
+    inputs:
+      xc32ver:
+        description: XC32 version to install (e.g. v1.42)
+        type: string
+        default: v1.42
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+  XC32VER: ${{ inputs.xc32ver || 'v1.42' }}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          build-args: XC32VER=${{ env.XC32VER }}
+          tags: |
+            ${{ env.IMAGE }}:${{ env.XC32VER }}
+            ${{ env.IMAGE }}:latest
+
+      - name: Smoke test the published image
+        run: |
+          docker run --rm "$IMAGE:$XC32VER" \
+            /opt/microchip/xc32/$XC32VER/bin/xc32-gcc --version

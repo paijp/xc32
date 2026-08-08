@@ -1,0 +1,70 @@
+name: XC32 build
+
+# Reusable workflow: build a PIC32 project with the XC32 toolchain.
+#
+# Usage from another repository:
+#
+#   jobs:
+#     firmware:
+#       uses: paijp/xc32/.github/workflows/build.yml@main
+#       with:
+#         device: 32MX270F256B
+#         targets: main.hex
+
+on:
+  workflow_call:
+    inputs:
+      device:
+        description: Target PIC32 device passed to -mprocessor
+        type: string
+        default: 32MX270F256B
+      targets:
+        description: Space separated make targets to build
+        type: string
+        default: test.hex
+      makefile:
+        description: Makefile to use. Defaults to the caller's own makefile; set to
+          "shared" to use the makefile bundled in this repository's image.
+        type: string
+        default: ''
+      working-directory:
+        description: Directory to run make in, relative to the repository root
+        type: string
+        default: .
+      image:
+        description: Container image providing the XC32 toolchain
+        type: string
+        default: ghcr.io/paijp/xc32:v1.42
+      artifact-name:
+        description: Name of the uploaded build artifact. Empty disables the upload.
+        type: string
+        default: firmware
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: ${{ inputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain version
+        run: ${XC32BIN}/xc32-gcc --version
+
+      - name: Use shared makefile
+        if: inputs.makefile == 'shared'
+        run: cp /root/makefile "${{ inputs.working-directory }}/makefile"
+
+      - name: Build
+        working-directory: ${{ inputs.working-directory }}
+        run: make DEVICE='${{ inputs.device }}' ${{ inputs.targets }}
+
+      - name: Upload artifacts
+        if: inputs.artifact-name != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact-name }}
+          if-no-files-found: error
+          path: |
+            ${{ inputs.working-directory }}/*.hex
+            ${{ inputs.working-directory }}/*.map
