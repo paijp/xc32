@@ -42,8 +42,44 @@ uploaded as a build artifact. Inputs:
 | `targets` | `test.hex` | space separated make targets |
 | `makefile` | *(empty)* | set to `shared` to use this repository's makefile instead of the caller's |
 | `working-directory` | `.` | directory to run `make` in |
+| `output-directory` | *(empty)* | collect the built `*.hex` / `*.map` into this directory, e.g. `release` |
 | `image` | `ghcr.io/paijp/xc32:v1.42` | pin a different toolchain version here |
 | `artifact-name` | `firmware` | empty string disables the artifact upload |
+
+### Collecting the output into `release/`
+
+```yaml
+jobs:
+  firmware:
+    uses: paijp/xc32/.github/workflows/build.yml@main
+    with:
+      targets: main.hex
+      output-directory: release
+```
+
+The built files are gathered into `release/` and uploaded as the artifact.
+Note that this directory lives in the workflow's workspace only — it is not
+committed back to the repository.
+
+To attach the same files to a GitHub Release, add a job in the calling
+repository that downloads the artifact:
+
+```yaml
+  release:
+    needs: firmware
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: firmware
+          path: release
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+```
 
 ### Alternative: use the image directly
 

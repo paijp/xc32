@@ -35,6 +35,11 @@ on:
         description: Container image providing the XC32 toolchain
         type: string
         default: ghcr.io/paijp/xc32:v1.42
+      output-directory:
+        description: Directory to collect the built *.hex / *.map into, relative to
+          the repository root (e.g. release). Empty leaves them where make put them.
+        type: string
+        default: ''
       artifact-name:
         description: Name of the uploaded build artifact. Empty disables the upload.
         type: string
@@ -59,8 +64,25 @@ jobs:
         working-directory: ${{ inputs.working-directory }}
         run: make DEVICE='${{ inputs.device }}' ${{ inputs.targets }}
 
+      - name: Collect output
+        if: inputs.output-directory != ''
+        run: |
+          mkdir -p '${{ inputs.output-directory }}'
+          cp ${{ inputs.working-directory }}/*.hex \
+             ${{ inputs.working-directory }}/*.map \
+             '${{ inputs.output-directory }}/'
+          ls -l '${{ inputs.output-directory }}'
+
       - name: Upload artifacts
-        if: inputs.artifact-name != ''
+        if: inputs.artifact-name != '' && inputs.output-directory != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact-name }}
+          if-no-files-found: error
+          path: ${{ inputs.output-directory }}
+
+      - name: Upload artifacts
+        if: inputs.artifact-name != '' && inputs.output-directory == ''
         uses: actions/upload-artifact@v4
         with:
           name: ${{ inputs.artifact-name }}
