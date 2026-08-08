@@ -16,12 +16,28 @@ RUN set -x &&\
 	apt-get clean &&\
 	rm -rf /var/lib/apt/lists/*
 
+# The installer finishes its work but never exits: after writing
+# "Installation completed" to /tmp/bitrock_installer.log it deadlocks in a
+# futex wait and hangs forever, which would stall the image build. So run it
+# in the background, wait for the completion marker, then terminate it and
+# verify the toolchain independently.
 RUN set -x &&\
 	cd /tmp &&\
-	wget "https://ww1.microchip.com/downloads/en/DeviceDoc/xc32-${XC32VER}-full-install-linux-installer.run" &&\
-	chmod a+x xc*.run &&\
-	./xc32-${XC32VER}-full-install-linux-installer.run --mode unattended --unattendedmodeui none --netservername localhost --LicenseType FreeMode &&\
-	rm xc*.run
+	wget -q -O installer.run \
+		"https://ww1.microchip.com/downloads/en/DeviceDoc/xc32-${XC32VER}-full-install-linux-installer.run" &&\
+	chmod a+x installer.run &&\
+	rm -f bitrock_installer.log &&\
+	( ./installer.run --mode unattended --unattendedmodeui none \
+		--netservername localhost --LicenseType FreeMode & echo $! > installer.pid ) &&\
+	for i in $(seq 1 180); do \
+		grep -q 'Installation completed' bitrock_installer.log 2>/dev/null && break; \
+		kill -0 "$(cat installer.pid)" 2>/dev/null || break; \
+		sleep 5; \
+	done &&\
+	grep -q 'Installation completed' bitrock_installer.log &&\
+	{ kill "$(cat installer.pid)" 2>/dev/null; sleep 2; kill -9 "$(cat installer.pid)" 2>/dev/null; true; } &&\
+	${XC32BIN}/xc32-gcc --version &&\
+	rm -f installer.run installer.pid bitrock_installer.log
 
 
 COPY makefile test.c /root/

@@ -97,6 +97,16 @@ The image sets `PATH` to include the toolchain, and exports `XC32BIN` and
 `XC32VER`. The bundled `makefile` honours `XC32BIN`, `XC32VER` and `DEVICE`
 as overridable variables.
 
+## Note on the installer
+
+The XC32 v1.42 installer completes its work correctly — it writes
+`Installation completed` to `/tmp/bitrock_installer.log` and verifies all
+12488 installed files — but then never exits, deadlocking in a futex wait.
+A plain `RUN ./xc32-...run` therefore hangs the image build forever. The
+Dockerfile works around this by running the installer in the background,
+waiting for the completion marker in its log, terminating it, and then
+verifying the toolchain by running `xc32-gcc --version`.
+
 ## Note on caches
 
 GitHub Actions caches (`actions/cache`) are scoped to a single repository and
