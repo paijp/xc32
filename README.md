@@ -97,15 +97,93 @@ The image sets `PATH` to include the toolchain, and exports `XC32BIN` and
 `XC32VER`. The bundled `makefile` honours `XC32BIN`, `XC32VER` and `DEVICE`
 as overridable variables.
 
-## Note on the installer
+## Why the installer needs a shim
 
-The XC32 v1.42 installer completes its work correctly — it writes
-`Installation completed` to `/tmp/bitrock_installer.log` and verifies all
-12488 installed files — but then never exits, deadlocking in a futex wait.
-A plain `RUN ./xc32-...run` therefore hangs the image build forever. The
-Dockerfile works around this by running the installer in the background,
-waiting for the completion marker in its log, terminating it, and then
-verifying the toolchain by running `xc32-gcc --version`.
+The XC32 v1.x installer does its job correctly — it writes `Installation
+completed` to `/tmp/bitrock_installer.log` and verifies all 12488 installed
+files — and then never exits. A plain `RUN ./xc32-...run` hangs the image
+build forever.
+
+Inspecting the stuck process shows what happens. The main thread sits in
+`pthread_cond_destroy` (confirmed by resolving its return address against
+libc), waiting on the `__wrefs` field of a condition variable. A worker
+thread of the installer's thread pool is still parked on `__g_signals` of
+that same condition variable, and nothing ever signals it:
+
+```
+__g_refs[1]    = 2     one waiter registered
+__wrefs        = 12    = (1 waiter << 3) | destroy-pending flag
+```
+
+Destroying a condition variable that still has waiters is undefined
+behaviour under POSIX, and since glibc 2.25 the implementation blocks until
+every waiter has left. That is why the same binary used to install fine:
+nothing about the installer changed, the base image's glibc did. Measured
+with one installer across three bases:
+
+| base | glibc | installer |
+| --- | --- | --- |
+| `debian:stretch-slim` | 2.24 | exits 0 after 54 s |
+| `debian:buster-slim` | 2.28 | hangs |
+| `debian:bookworm-slim` | 2.36 | hangs |
+
+Simply using an old base is not an option here: GitHub Actions runs JS
+actions such as `actions/checkout` with node20 *inside* the job container,
+and node20 needs glibc ≥ 2.28 — so no glibc both avoids the hang and runs
+the runner's node.
+
+The Dockerfile therefore neutralises just that one call, by preloading a
+three-line stub during the install:
+
+```c
+int pthread_cond_destroy(void *c){(void)c;return 0;}
+```
+
+The installer exits normally, and since the process terminates immediately
+afterwards, skipping the destroy has no observable effect. The stub is
+compiled in a separate build stage so `gcc-multilib` never reaches the
+published image.
+
+## XC32 versions
+
+Measured by building one image per version (podman, `debian:bookworm-slim`
+base, gzip -1 for the compressed figures):
+
+| | v1.42 | v1.44 | v2.50 | v3.01 | v5.00 |
+| --- | --- | --- | --- | --- | --- |
+| installer | ELF32 | ELF32 | ELF64 | ELF64 | ELF64 |
+| needs i386 libs | yes | yes | no | no | no |
+| installer exits on its own | **no** | **no** | yes | yes | yes |
+| shim required | **yes** | **yes** | no | no | no |
+| download | 58 MiB | 206 MiB | 392 MiB | 370 MiB | 1.05 GiB |
+| image | 3.18 GiB | 3.07 GiB | 6.25 GiB | 4.05 GiB | 7.05 GiB |
+| compressed | **439 MiB** | 544 MiB | 1.24 GiB | 865 MiB | 2.00 GiB |
+| compressed, no `pic32c` | 425 MiB | 524 MiB | 538 MiB | 511 MiB | **244 MiB** |
+| files | 12500 | 11787 | 22156 | 23346 | 7579 |
+| gcc | 4.8.3 | 4.8.3 | 4.8.3 | 4.8.3 | 13.2.1 |
+| compiler driver | `xc32-gcc` | `xc32-gcc` | `pic32m-gcc` | `pic32m-gcc` | `pic32m-gcc` |
+
+The compressed column is the one that matters for CI: it is what every
+workflow run pulls over the network and what the registry stores.
+
+**v1.42 is the lightest version to publish as-is**, which is why it is the
+default here. Its 439 MiB is the smallest of any untrimmed version, and its
+image pulls in about 25 s on a GitHub-hosted runner.
+
+Note the last row of the table, though. In v5.00 over 90% of the tree is
+`pic32c`, the ARM Cortex-M support — irrelevant for PIC32MX targets. Dropped,
+v5.00 becomes by far the smallest at 244 MiB, with a modern gcc 13.2.1 and no
+shim needed. That trade has not been validated here: neither the trimming nor
+the `pic32m-gcc` driver has been tested against this makefile's options.
+
+Versions other than v1.42 are not published. To build one locally:
+
+```sh
+docker build --build-arg XC32VER=v3.01 -t xc32:v3.01 .
+```
+
+Note that v2.50 and later use a different download URL path and do not need
+the i386 packages, so the Dockerfile needs adjusting for them.
 
 ## Note on caches
 
