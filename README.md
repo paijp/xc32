@@ -158,23 +158,34 @@ base, gzip -1 for the compressed figures):
 | download | 58 MiB | 206 MiB | 392 MiB | 370 MiB | 1.05 GiB |
 | image | 3.18 GiB | 3.07 GiB | 6.25 GiB | 4.05 GiB | 7.05 GiB |
 | compressed | **439 MiB** | 544 MiB | 1.24 GiB | 865 MiB | 2.00 GiB |
-| compressed, no `pic32c` | 425 MiB | 524 MiB | 538 MiB | 511 MiB | **244 MiB** |
 | files | 12500 | 11787 | 22156 | 23346 | 7579 |
 | gcc | 4.8.3 | 4.8.3 | 4.8.3 | 4.8.3 | 13.2.1 |
 | compiler driver | `xc32-gcc` | `xc32-gcc` | `pic32m-gcc` | `pic32m-gcc` | `pic32m-gcc` |
 
-The compressed column is the one that matters for CI: it is what every
-workflow run pulls over the network and what the registry stores.
+The compressed row is the one that matters for CI: it is what every workflow
+run pulls over the network and what the registry stores.
 
-**v1.42 is the lightest version to publish as-is**, which is why it is the
-default here. Its 439 MiB is the smallest of any untrimmed version, and its
-image pulls in about 25 s on a GitHub-hosted runner.
+**v1.42 is published because it is the smallest**, and it stays that way
+without any pruning of the installed tree. Its image pulls in about 25 s on a
+GitHub-hosted runner.
 
-Note the last row of the table, though. In v5.00 over 90% of the tree is
-`pic32c`, the ARM Cortex-M support — irrelevant for PIC32MX targets. Dropped,
-v5.00 becomes by far the smallest at 244 MiB, with a modern gcc 13.2.1 and no
-shim needed. That trade has not been validated here: neither the trimming nor
-the `pic32m-gcc` driver has been tested against this makefile's options.
+The jump from v1.44 to v2.50 is where the size roughly doubles. It is not
+bloat in the PIC32MX toolchain — v2.50 is the version that added ARM
+Cortex-M support, and that support is simply a second toolchain living
+alongside the first:
+
+```
+v1.44   pic32mx 2317 MB
+v2.50   pic32mx 2619 MB   pic32c 2401 MB
+v3.01   pic32mx 2030 MB   pic32c 1018 MB
+v5.00   pic32m   368 MB   pic32c 5624 MB
+```
+
+So for a PIC32MX project, everything from v2.50 onwards ships a large amount
+of material that will never be used. It could be deleted after installing,
+but that means shipping a doctored toolchain rather than what the vendor
+installs, so this repository does not do it: the image contains exactly what
+the installer produces.
 
 Versions other than v1.42 are not published. To build one locally:
 
