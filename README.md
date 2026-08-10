@@ -97,7 +97,7 @@ The image sets `PATH` to include the toolchain, and exports `XC32BIN` and
 `XC32VER`. The bundled `makefile` honours `XC32BIN`, `XC32VER` and `DEVICE`
 as overridable variables.
 
-## Why the installer needs a shim
+## Why the installer has to be stopped
 
 The XC32 v1.x installer does its job correctly — it writes `Installation
 completed` to `/tmp/bitrock_installer.log` and verifies all 12488 installed
@@ -132,17 +132,32 @@ actions such as `actions/checkout` with node20 *inside* the job container,
 and node20 needs glibc ≥ 2.28 — so no glibc both avoids the hang and runs
 the runner's node.
 
-The Dockerfile therefore neutralises just that one call, by preloading a
-three-line stub during the install:
+Giving the installer an old glibc of its own does not work either. The
+`.run` is statically linked with no `PT_INTERP`, so there is nothing to
+redirect with an explicit loader, and the process that actually deadlocks is
+a dynamically linked child that the stub launches itself — it always gets
+the system loader. Pointing that child at an old libc through
+`LD_LIBRARY_PATH` fails immediately, because a loader and its libc have to
+come from the same glibc build:
 
-```c
-int pthread_cond_destroy(void *c){(void)c;return 0;}
+```
+Inconsistency detected by ld.so: dl-call-libc-early-init.c: 37:
+_dl_call_libc_early_init: Assertion `sym != NULL' failed!
 ```
 
-The installer exits normally, and since the process terminates immediately
-afterwards, skipping the destroy has no observable effect. The stub is
-compiled in a separate build stage so `gcc-multilib` never reaches the
-published image.
+So the install is left to finish and the installer is then stopped: the
+Dockerfile waits for the installer's own `Installation completed` marker,
+terminates the process, and verifies the result by running `xc32-gcc
+--version`. Everything the build does is a shell command visible in the
+Dockerfile — no compiled helper is introduced, and nothing built elsewhere
+is copied into the image, so what the image contains is exactly what the
+vendor installer produced.
+
+A preloaded stub returning immediately from `pthread_cond_destroy` also
+works and lets the installer exit on its own, but it puts a locally built
+binary into a published layer, which makes the image harder for anyone else
+to audit. Since v1.42 is frozen and the install runs once, that trade is not
+worth it here.
 
 ## XC32 versions
 

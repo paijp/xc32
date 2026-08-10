@@ -1,24 +1,3 @@
-# The XC32 v1.x installer completes its work correctly but never exits: it
-# tears down its thread pool by calling pthread_cond_destroy on a condition
-# variable that still has a waiter, and since glibc 2.25 that call blocks
-# until every waiter has left. Nobody ever signals the waiter, so the
-# installer deadlocks in a futex wait and the image build would hang forever.
-#
-# Rather than killing the installer, neutralise just that one call for the
-# duration of the install. The process exits immediately afterwards, so
-# skipping the destroy has no observable effect. The shim is built in a
-# separate stage so gcc-multilib does not end up in the published image.
-FROM debian:bookworm-slim AS shim
-
-ENV DEBIAN_FRONTEND noninteractive
-
-RUN set -x &&\
-	apt-get update -yq &&\
-	apt-get install -yq --no-install-recommends gcc-multilib libc6-dev-i386 &&\
-	printf 'int pthread_cond_destroy(void *c){(void)c;return 0;}\n' > /tmp/shim.c &&\
-	gcc -m32 -shared -fPIC -o /tmp/cond-destroy-shim.so /tmp/shim.c
-
-
 FROM debian:bookworm-slim
 
 ENV DEBIAN_FRONTEND noninteractive
@@ -37,17 +16,35 @@ RUN set -x &&\
 	apt-get clean &&\
 	rm -rf /var/lib/apt/lists/*
 
-COPY --from=shim /tmp/cond-destroy-shim.so /tmp/cond-destroy-shim.so
-
+# The installer does its job correctly and then never exits: it tears down
+# its thread pool by calling pthread_cond_destroy on a condition variable
+# that still has a waiter, and since glibc 2.25 that call blocks until every
+# waiter has left. Nothing ever signals the waiter, so it deadlocks in a
+# futex wait after the install has already finished.
+#
+# Nothing can be linked or preloaded to avoid this: the .run is statically
+# linked with no PT_INTERP, and the process that deadlocks is a child it
+# launches itself, so an explicit loader cannot be given to it either.
+# Since the install itself is complete by then, wait for the installer's own
+# completion marker, stop it, and verify the result independently.
 RUN set -x &&\
 	cd /tmp &&\
 	wget -q -O installer.run \
 		"https://ww1.microchip.com/downloads/en/DeviceDoc/xc32-${XC32VER}-full-install-linux-installer.run" &&\
 	chmod a+x installer.run &&\
-	LD_PRELOAD=/tmp/cond-destroy-shim.so ./installer.run --mode unattended \
-		--unattendedmodeui none --netservername localhost --LicenseType FreeMode &&\
+	rm -f bitrock_installer.log &&\
+	( ./installer.run --mode unattended --unattendedmodeui none \
+		--netservername localhost --LicenseType FreeMode & echo $! > installer.pid ) &&\
+	PID=$(cat installer.pid) &&\
+	for i in $(seq 1 180); do \
+		grep -q 'Installation completed' bitrock_installer.log 2>/dev/null && break; \
+		kill -0 "$PID" 2>/dev/null || break; \
+		sleep 5; \
+	done &&\
+	grep -q 'Installation completed' bitrock_installer.log &&\
+	{ kill "$PID" 2>/dev/null; sleep 2; kill -9 "$PID" 2>/dev/null; true; } &&\
 	${XC32BIN}/xc32-gcc --version &&\
-	rm -f installer.run cond-destroy-shim.so bitrock_installer.log
+	rm -f installer.run installer.pid bitrock_installer.log
 
 
 COPY makefile test.c /root/
