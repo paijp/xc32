@@ -153,11 +153,44 @@ Dockerfile — no compiled helper is introduced, and nothing built elsewhere
 is copied into the image, so what the image contains is exactly what the
 vendor installer produced.
 
+This is needed only for the v1.x installers. From v2.50 onwards the
+installer exits on its own, so there the whole loop reduces to a plain
+`RUN ./installer.run ...`.
+
 A preloaded stub returning immediately from `pthread_cond_destroy` also
 works and lets the installer exit on its own, but it puts a locally built
 binary into a published layer, which makes the image harder for anyone else
 to audit. Since v1.42 is frozen and the install runs once, that trade is not
 worth it here.
+
+## Keeping the installer as evidence
+
+The installer is downloaded in a layer of its own and then kept. A layer is
+sealed once the instruction that produced it finishes, so that layer holds
+the exact bytes that were about to be executed, and nothing the installer
+does afterwards can reach them. If a tampered installer ever came down that
+URL and erased itself while running, the sample would still be recoverable:
+
+```sh
+docker save ghcr.io/paijp/xc32:v1.42 | tar -x -C dir
+tar -xOf dir/<layer>.tar tmp/installer.run | sha256sum
+```
+
+Verified by overwriting the file in the following layer — the running image
+shows the replacement, while the earlier layer still yields the original
+61213753 bytes with a matching digest. A checksum alone would only say that
+something differs; the layer preserves the thing itself, so it can actually
+be examined.
+
+The build also prints the digest, so a normal build records what it fetched:
+
+```
+49d8d445f83b33934beeba50eda08521d0832341a91e910fc98b05ce284eba76  installer.run
+```
+
+This costs 58 MiB of the compressed image. The file is not deleted later:
+once it is in a layer, removing it saves nothing on the wire and only makes
+it harder to get at.
 
 ## XC32 versions
 
