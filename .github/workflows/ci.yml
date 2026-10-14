@@ -13,3 +13,12 @@ jobs:
       device: 32MX270F256B
       targets: test.hex
       artifact-name: test-firmware
+
+  tmc2209-build:
+    uses: ./.github/workflows/build.yml
+    with:
+      device: 32MX270F256B
+      targets: tmc2209.hex
+      makefile: shared
+      working-directory: tmc2209
+      artifact-name: tmc2209-firmware

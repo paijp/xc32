@@ -3,6 +3,9 @@
 
 - `cd /root&& make target.hex` to build a project.
 
+- [`tmc2209/`](tmc2209/): sample driving a Trinamic TMC2209 stepper driver
+  (UART register access, current limit, sensorless homing).
+
 ## Container image
 
 The toolchain is published as a public image on GitHub Container Registry:
