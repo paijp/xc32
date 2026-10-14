@@ -106,9 +106,9 @@ static	W	reglist[REGSIZE];
 #define	REG_IHOLD	0x22		/* 1..IRUN, 0:default */
 
 /* TMC2209, Rsense=0.11ohm, vsense=1: I_rms = (CS + 1) / 32 * 0.98A */
-#define	TMC_IRUN_DEF	3		/* 0.09A */
-#define	TMC_IHOLD_DEF	2		/* 0.06A */
-#define	TMC_IRUN_MAX	21		/* 0.67A */
+#define	TMC_IRUN_DEF	12		/* 0.40A */
+#define	TMC_IHOLD_DEF	4		/* 0.12A */
+#define	TMC_IRUN_MAX	19		/* 0.61A */
 
 #define	TMC_GCONF	0x000001c0	/* pdn_disable, mstep_reg_select, multistep_filt, internal ref */
 #define	TMC_CHOPCONF	0x15030053	/* intpol, 8ustep, vsense=1, TBL=2, HSTRT=5, TOFF=3 */
@@ -123,8 +123,9 @@ static	W	reglist[REGSIZE];
 #define	TICK_PER_MS	20000		/* core timer = SYSCLK / 2 */
 #define	TMC_CHECK_MS	100
 #define	TMC_TIMEOUT_MS	10
-#define	MOVE_TIMEOUT_MS	10000		/* m, h */
+#define	MOVE_TIMEOUT_MS	60000		/* m, h */
 #define	HOME_BLANK_STEPS	64		/* ignore StallGuard while starting */
+#define	HOME_AVG	8		/* SG_RESULT moving average */
 
 static	W	tmc_busy = 0;
 static	W	tmc_ready = 0;		/* config written and verified */
@@ -576,10 +577,18 @@ int	main(int ac, char **av)
 					{
 						UW	t0 = _CP0_GET_COUNT();
 						UW	pos0 = motorpos;
-						W	v, d;
+						W	v, d, i, n;
+						W	hist[HOME_AVG];
 						
-						for (;;) {
-							v = readmotorreg(0x41);
+						for (i=0; i<HOME_AVG; i++)
+							hist[i] = 1023;
+						for (n=0; ; n++) {
+							if ((v = readmotorreg(0x41)) > 1023)
+								v = 1023;		/* read error */
+							hist[n % HOME_AVG] = v;
+							for (i=v=0; i<HOME_AVG; i++)
+								v += hist[i];
+							v /= HOME_AVG;
 							d = (W)(motorpos - pos0);
 							if (d < 0)
 								d = -d;

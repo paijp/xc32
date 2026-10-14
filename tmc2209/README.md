@@ -43,10 +43,13 @@ potentiometer. For Rsense = 0.11Ω and vsense=1:
 
 | IRUN | I_rms |
 | --- | --- |
-| 3 (default) | 0.09A |
-| 8 | 0.25A |
+| 4 (IHOLD default) | 0.12A |
+| 12 (IRUN default) | 0.40A |
 | 16 | 0.52A |
-| 21 (`TMC_IRUN_MAX`) | 0.67A |
+| 19 (`TMC_IRUN_MAX`) | 0.61A |
+
+The defaults suit a 0.6A motor; adjust `TMC_IRUN_DEF`, `TMC_IHOLD_DEF` and
+`TMC_IRUN_MAX` to the motor in use.
 
 Every 100ms the driver is checked:
 
@@ -67,8 +70,8 @@ precede the command letter.
 | --- | --- |
 | `<n>r` | select register `n` |
 | `<v>w` | write `v` to the selected register |
-| `<n>m` | run until the position reaches `n` (signed), or 10s |
-| `<n>h` | run until SG_RESULT ≤ `n`, then set the position to 0 (homing) |
+| `<n>m` | run until the position reaches `n` (signed), or 60s |
+| `<n>h` | run until the average of 8 SG_RESULT readings ≤ `n`, or 60s, then set the position to 0 (homing) |
 | `i` | set the position to 0 |
 | `<n>t` | wait `n`+1 ms |
 
@@ -76,26 +79,37 @@ precede the command letter.
 | --- | --- |
 | `0` | bit0: DIR, bit1: ENN (1 = disabled) |
 | `20` | step rate; about `v`/10 microsteps/s, 0 stops |
-| `21` | IRUN, 1..21 (0: default) |
+| `21` | IRUN, 1..19 (0: default) |
 | `22` | IHOLD, 1..IRUN (0: default) |
 
-Example: home at about 1 rev/s with 0.52A, then move half a turn.
+Example: home at about 1 rev/s with the default current, then move two
+turns.
 
 ```
-	21r10w22r8w0r1w20r4000w80h
-	0r0w20r4000w320m
+	0r1w20r4000w5fh
+	0r0w20r4000wc80m
 ```
 
 ## Sensorless homing
 
 StallGuard4 works only in StealthChop and needs speed: at about 0.1 rev/s
-SG_RESULT is noise, at about 1 rev/s (1600 microsteps/s, IRUN=16) it stays
-around 250–290 while running free and falls below 30 at a mechanical stop.
-The first 64 microsteps after starting are ignored, since SG_RESULT starts
-low from standstill.
+SG_RESULT is noise. The first 64 microsteps after starting are ignored,
+since SG_RESULT starts low from standstill, and an average of 8 readings is
+compared, since single readings jump between neighbouring values.
 
-With a 0.95A motor (3.7Ω) at 12V, homing against both ends of a stopper
-stopped within 2 full steps of the same position in repeated runs.
+The level depends on the motor, the current and the speed, so measure the
+free-running value first and set the threshold to about 70–80% of it.
+Measured at 12V:
+
+| motor | IRUN | speed | free running | at the stop | threshold |
+| --- | --- | --- | --- | --- | --- |
+| 0.95A, stopper | 16 | 1 rev/s | 250–290 | below 30 | `80` (128) |
+| 0.6A, 6mm lead screw | 12 | 1 rev/s | 113–121 (average) | 60–85 | `5f` (95) |
+| 0.6A, 6mm lead screw | 12 | 2 rev/s | 207–216 (average) | | `96` (150) |
+
+With the lead screw at 1 rev/s, three homing runs stopped 33, 32 and 32
+microsteps past the end. With too low a threshold (48) the stop was found
+only after 10–18 turns of skipping steps at the end.
 
 ## Notes
 
